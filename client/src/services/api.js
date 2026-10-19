@@ -1,44 +1,35 @@
 import axios from "axios";
+import { clearSession, getToken } from "../utils/session";
 
-// const API_BASE_URL = "http://localhost:5000/api";
+// Set VITE_API_URL in your hosting dashboard (e.g. https://your-api.onrender.com/api).
+// In development it falls back to localhost; in production it falls back to the
+// API URL that was in your client .env so the app never silently calls localhost.
+// const API_URL =
+//   import.meta.env.VITE_API_URL ||
+//   (import.meta.env.DEV
+//     ? "http://localhost:5000/api"
+//     : "https://e-commerce-mern-g6fo.onrender.com/api");
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000/api",
-  withCredentials: true,
+  // Free hosting tiers (e.g. Render) can take ~30-60s to wake up on the first request.
+  timeout: 60000,
 });
 
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem("token");
-    const user = localStorage.getItem("user");
-
-    console.log("🔐 Token in localStorage:", token);
-    console.log("👤 User in localStorage:", user);
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-      console.log("✅ Token added to request headers");
-    } else {
-      console.log("❌ No token found in localStorage");
-    }
-
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
+api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-      localStorage.removeItem("currentUser");
-      window.location.href = "/login";
+    // Only treat 401 as "session expired" if we actually sent a token.
+    if (error.response?.status === 401 && error.config?.headers?.Authorization) {
+      clearSession();
+      window.dispatchEvent(new Event("auth:expired"));
     }
-    console.error("API Error:", error.response || error.message);
     return Promise.reject(error);
   }
 );
@@ -46,17 +37,14 @@ api.interceptors.response.use(
 export const authAPI = {
   register: (userData) => api.post("/auth/register", userData),
   login: (credentials) => api.post("/auth/login", credentials),
-  logout: () => api.get("/auth/logout"),
+  logout: () => api.post("/auth/logout"),
   getProfile: () => api.get("/auth/me"),
 };
 
 export const productsAPI = {
   getAll: (params) => api.get("/products", { params }),
   getById: (id) => api.get(`/products/${id}`),
-  create: (productData) =>
-    api.post("/products", productData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    }),
+  create: (productData) => api.post("/products", productData),
   update: (id, productData) => api.put(`/products/${id}`, productData),
   delete: (id) => api.delete(`/products/${id}`),
 };
@@ -72,16 +60,12 @@ export const cartAPI = {
 export const ordersAPI = {
   create: (data) => api.post("/orders", data),
   getMyOrders: () => api.get("/orders/my-orders"),
-  getUserOrders: () => api.get("/orders/my-orders"),
-  getById: (id) => api.get(`/orders/${id}`),
-  getAllOrders: () => api.get("/orders"),
   updateOrderStatus: (id, data) => api.put(`/orders/${id}/status`, data),
   deleteOrder: (id) => api.delete(`/orders/${id}`),
 };
 
 export const ratingAPI = {
-  addReview: (productId, data) =>
-    api.post(`/products/${productId}/reviews`, data),
+  addReview: (productId, data) => api.post(`/products/${productId}/reviews`, data),
   getReviews: (productId) => api.get(`/products/${productId}/reviews`),
   updateReview: (productId, reviewId, data) =>
     api.put(`/products/${productId}/reviews/${reviewId}`, data),

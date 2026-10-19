@@ -24,12 +24,9 @@ app.use(express.urlencoded({ extended: true }));
 // CORS - allow your frontend origin
 app.use(
   cors({
-    origin: [
-      process.env.CLIENT_URL || "http://localhost:5173",
-      "https://regally-noncondensible-thurman.ngrok-free.dev",
-    ],
+    origin: [process.env.CLIENT_URL || "http://localhost:5173"],
     credentials: true,
-  })
+  }),
 );
 
 // Connect DB
@@ -61,5 +58,9 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ success: false, message: err.message });
 });
 
+console.log("CLIENT_URL raw =", JSON.stringify(process.env.CLIENT_URL));
+console.log("Origin allowlist =", [
+  process.env.CLIENT_URL || "http://localhost:5173",
+]);
 const port = process.env.PORT || 5000;
 app.listen(port, () => console.log(`Server running on port ${port}`));

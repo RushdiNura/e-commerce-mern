@@ -1,117 +1,105 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ShoppingCart } from "lucide-react";
+import toast from "react-hot-toast";
 import { useCart } from "../context/CartContext";
+import { useAuth } from "../context/AuthContext";
+import Stars from "./Stars";
+import {
+  formatPrice,
+  getCategoryName,
+  getId,
+  getImage,
+  getPrice,
+  getRating,
+  getReviewCount,
+  onImgError,
+} from "../utils/format";
 
-const Item = ({ id,_id, name, image, old_price, new_price, product }) => {
+// Product card. Pass the whole product object: <Item product={p} />
+const Item = ({ product }) => {
   const { addToCart } = useCart();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  // const discount =
-  //   old_price && old_price > new_price
-  //     ? Math.round(((old_price - new_price) / old_price) * 100)
-  //     : 0;
+  const id = getId(product);
+  const price = getPrice(product);
+  const oldPrice = Number(product.old_price) || 0;
+  const category = getCategoryName(product);
+  const outOfStock = product.stock !== undefined && Number(product.stock) <= 0;
+  const lowStock = !outOfStock && product.stock !== undefined && Number(product.stock) <= 5;
+  const reviews = getReviewCount(product);
 
-const handleAddToCart = async (e) => {
-  e.preventDefault();
-  try {
-    const pid = _id ?? id ?? (product && product._id);
-    await addToCart({
-      productId: pid,
-      quantity: 1,
-    });
-  } catch (err) {
-    console.error("Add to cart failed:", err);
-  }
-};
-
-
+  const handleAdd = async () => {
+    if (!user) {
+      toast("Please log in to add items to your cart");
+      navigate("/login", { state: { from: location } });
+      return;
+    }
+    await addToCart({ productId: id, quantity: 1, name: product.name });
+  };
 
   return (
-    <div className="group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-
-      <div className="relative overflow-hidden">
-        <Link to={`/product/${_id ?? id ?? (product && product._id)}`}>
-          <img
-            src={
-              Array.isArray(image)
-                ? image[0]?.url
-                : image?.url ||
-                  image ||
-                  "https://images.unsplash.com/photo-1581093588401-22b6d2d4cf59?auto=format&fit=crop&w=600&q=80"
-            }
-            alt={name}
-            className="w-full h-56 object-cover transition-transform duration-300 group-hover:scale-105"
-          />
-        </Link>
-
-        {/* {discount > 0 && (
-          <span className="absolute top-3 left-3 bg-red-500 text-white text-xs font-semibold px-3 py-1 rounded-full shadow-md">
-            -{discount}%
+    <article className="card group flex h-full flex-col overflow-hidden transition-shadow duration-300 hover:shadow-xl">
+      <Link
+        to={`/product/${id}`}
+        className="relative block overflow-hidden bg-surface-2"
+        aria-label={`View ${product.name}`}
+      >
+        <img
+          src={getImage(product)}
+          alt={product.name}
+          loading="lazy"
+          onError={onImgError}
+          className={`h-56 w-full object-cover transition-transform duration-300 group-hover:scale-105 ${
+            outOfStock ? "opacity-60" : ""
+          }`}
+        />
+        {outOfStock && (
+          <span className="badge absolute left-3 top-3 bg-slate-900 text-white">Out of stock</span>
+        )}
+        {lowStock && (
+          <span className="badge absolute left-3 top-3 bg-accent text-accent-fg">
+            Only {product.stock} left
           </span>
-        )} */}
+        )}
+      </Link>
 
-        {/* 🛒 Add to Cart Button */}
-        <button
-          onClick={handleAddToCart}
-          className="absolute bottom-3 right-3 bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 shadow-lg"
-          aria-label="Add to cart"
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
-        </button>
-      </div>
-
-      <div className="p-4">
-        <Link to={`/products/${_id ?? id ?? (product && product._id)}`}>
-          <h3 className="font-semibold text-slate-800 dark:text-slate-100 text-base mb-2 line-clamp-2 group-hover:text-indigo-600 transition-colors">
-            {name}
+      <div className="flex flex-1 flex-col p-4">
+        {category && (
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-brand-text">
+            {category}
+          </p>
+        )}
+        <Link to={`/product/${id}`}>
+          <h3 className="line-clamp-2 min-h-[2.75rem] font-semibold leading-snug text-fg transition-colors group-hover:text-brand-text">
+            {product.name}
           </h3>
         </Link>
 
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
-            ${new_price}
-          </span>
-          {old_price && (
-            <span className="text-sm text-slate-500 line-through">
-              ${old_price}
-            </span>
+        <div className="mt-2 flex items-center gap-2">
+          <Stars value={getRating(product)} size={14} />
+          <span className="text-xs text-muted">({reviews})</span>
+        </div>
+
+        <div className="mt-3 flex items-baseline gap-2">
+          <span className="text-xl font-bold text-fg">{formatPrice(price)}</span>
+          {oldPrice > price && (
+            <span className="text-sm text-muted line-through">{formatPrice(oldPrice)}</span>
           )}
         </div>
 
-        {/* ⭐ Ratings */}
-        <div className="flex items-center">
-          <div className="flex text-yellow-400">
-            {[...Array(5)].map((_, i) => (
-              <svg
-                key={i}
-                className={`w-4 h-4 ${
-                  i < Math.floor(product?.rating?.average || 0)
-                    ? "fill-current"
-                    : "stroke-current"
-                }`}
-                viewBox="0 0 24 24"
-              >
-                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-              </svg>
-            ))}
-          </div>
-          <span className="text-sm text-slate-500 ml-1">
-            ({product?.rating?.count || 0})
-          </span>
-        </div>
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={outOfStock}
+          className="btn btn-primary mt-4 w-full"
+        >
+          <ShoppingCart size={16} aria-hidden="true" />
+          {outOfStock ? "Out of stock" : "Add to cart"}
+        </button>
       </div>
-    </div>
+    </article>
   );
 };
 

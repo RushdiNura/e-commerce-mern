@@ -1,467 +1,292 @@
-import React, { useState, useEffect } from "react";
-import { useCart } from "../context/CartContext";
-import { useNavigate } from "react-router-dom";
+// Checkout page (route: /checkout)
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { AlertCircle, Loader2, Lock, ShoppingBag } from "lucide-react";
+import toast from "react-hot-toast";
+import EmptyState from "../components/EmptyState";
+import { PageLoader } from "../components/LoadingSpinner";
+import { useCart } from "../context/CartContext";
+import { useAuth } from "../context/AuthContext";
 import { ordersAPI } from "../services/api";
+import useDocumentTitle from "../hooks/useDocumentTitle";
+import { PAYMENT_METHODS } from "../config";
+import { formatPrice, getErrorMessage, getId, getImage, getPrice, onImgError } from "../utils/format";
 
-const Order = () => {
-  const { cartItems, total, clearCart } = useCart();
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    address: "",
-    city: "",
-    postalCode: "",
-    country: "",
-    paymentMethod: "Card",
-  });
-  const [errors, setErrors] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [touched, setTouched] = useState({});
+const FIELDS = [
+  { name: "name", label: "Full name", type: "text", autoComplete: "name", placeholder: "Jane Doe", required: true },
+  { name: "email", label: "Email address", type: "email", autoComplete: "email", placeholder: "you@example.com", required: true },
+  { name: "address", label: "Street address", type: "text", autoComplete: "street-address", placeholder: "123 Main Street", required: true, full: true },
+  { name: "city", label: "City", type: "text", autoComplete: "address-level2", placeholder: "New York", required: true },
+  { name: "postalCode", label: "Postal code (optional)", type: "text", autoComplete: "postal-code", placeholder: "10001" },
+  { name: "country", label: "Country", type: "text", autoComplete: "country-name", placeholder: "United States", required: true, full: true },
+];
+
+const validate = (v) => {
+  const e = {};
+  if (!v.name.trim()) e.name = "Please enter your full name";
+  else if (v.name.trim().length < 2) e.name = "Name must be at least 2 characters";
+  if (!v.email.trim()) e.email = "Please enter your email";
+  else if (!/^\S+@\S+\.\S+$/.test(v.email.trim())) e.email = "Enter a valid email address";
+  if (!v.address.trim()) e.address = "Please enter your street address";
+  else if (v.address.trim().length < 5) e.address = "Address looks too short";
+  if (!v.city.trim()) e.city = "Please enter your city";
+  if (v.postalCode && !/^[A-Za-z0-9\- ]{2,12}$/.test(v.postalCode.trim()))
+    e.postalCode = "Enter a valid postal code";
+  if (!v.country.trim()) e.country = "Please enter your country";
+  return e;
+};
+
+const Checkout = () => {
+  const { user } = useAuth();
+  const { cartItems, total, initialized, resetCart } = useCart();
   const navigate = useNavigate();
 
-  // Real-time validation
-  const validateField = (name, value) => {
-    const newErrors = { ...errors };
-    
-    switch (name) {
-      case 'name':
-        if (!value.trim()) {
-          newErrors.name = 'Full name is required';
-        } else if (value.trim().length < 2) {
-          newErrors.name = 'Name must be at least 2 characters';
-        } else {
-          delete newErrors.name;
-        }
-        break;
-      case 'email':
-        if (!value.trim()) {
-          newErrors.email = 'Email is required';
-        } else if (!/\S+@\S+\.\S+/.test(value)) {
-          newErrors.email = 'Invalid email format';
-        } else {
-          delete newErrors.email;
-        }
-        break;
-      case 'address':
-        if (!value.trim()) {
-          newErrors.address = 'Address is required';
-        } else if (value.trim().length < 5) {
-          newErrors.address = 'Address must be at least 5 characters';
-        } else {
-          delete newErrors.address;
-        }
-        break;
-      case 'city':
-        if (!value.trim()) {
-          newErrors.city = 'City is required';
-        } else {
-          delete newErrors.city;
-        }
-        break;
-      case 'postalCode':
-        if (value && !/^[A-Z0-9\- ]+$/i.test(value)) {
-          newErrors.postalCode = 'Invalid postal code format';
-        } else {
-          delete newErrors.postalCode;
-        }
-        break;
-      case 'country':
-        if (!value.trim()) {
-          newErrors.country = 'Country is required';
-        } else {
-          delete newErrors.country;
-        }
-        break;
-      default:
-        if (!value.trim() && name !== 'postalCode') {
-          newErrors[name] = 'This field is required';
-        } else {
-          delete newErrors[name];
-        }
+  const draftKey = `checkout:draft:${user?._id}`;
+  const [values, setValues] = useState(() => {
+    const base = {
+      name: user?.name || "",
+      email: user?.email || "",
+      address: "",
+      city: "",
+      postalCode: "",
+      country: "",
+      paymentMethod: PAYMENT_METHODS[0].value,
+    };
+    try {
+      // sessionStorage: remembers the form if you reload, forgets it when the tab closes.
+      return { ...base, ...JSON.parse(sessionStorage.getItem(draftKey) || "{}") };
+    } catch {
+      return base;
     }
-    
-    setErrors(newErrors);
-  };
+  });
+  const [touched, setTouched] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+
+  useDocumentTitle("Checkout");
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(draftKey, JSON.stringify(values));
+    } catch {
+      /* ignore */
+    }
+  }, [values, draftKey]);
+
+  const errors = useMemo(() => validate(values), [values]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
-    
-    // Validate field if it's been touched before
-    if (touched[name]) {
-      validateField(name, value);
-    }
+    setValues((v) => ({ ...v, [name]: value }));
+    if (submitError) setSubmitError("");
   };
-
-  const handleBlur = (e) => {
-    const { name, value } = e.target;
-    setTouched(prev => ({ ...prev, [name]: true }));
-    validateField(name, value);
-  };
-
-  // Check if form is valid
-  const isFormValid = () => {
-    const required = ['name', 'email', 'address', 'city', 'country'];
-    const hasErrors = Object.keys(errors).length > 0;
-    const allRequiredFilled = required.every(field => formData[field].trim() !== '');
-    
-    return !hasErrors && allRequiredFilled && cartItems.length > 0;
-  };
-
-  // Auto-save form data to localStorage
-  useEffect(() => {
-    const savedFormData = localStorage.getItem('checkoutFormData');
-    if (savedFormData) {
-      setFormData(JSON.parse(savedFormData));
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('checkoutFormData', JSON.stringify(formData));
-  }, [formData]);
+  const handleBlur = (e) => setTouched((t) => ({ ...t, [e.target.name]: true }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Mark all fields as touched to show errors
-    const allTouched = {};
-    Object.keys(formData).forEach(key => {
-      if (key !== 'paymentMethod') allTouched[key] = true;
-    });
-    setTouched(allTouched);
-    
-    // Validate all fields
-    Object.keys(formData).forEach(key => {
-      validateField(key, formData[key]);
-    });
-
-    if (!isFormValid()) {
-      alert("Please fix the form errors before submitting.");
+    setTouched(Object.fromEntries(FIELDS.map((f) => [f.name, true])));
+    if (Object.keys(errors).length) {
+      const first = FIELDS.find((f) => errors[f.name]);
+      document.getElementById(first.name)?.focus();
       return;
     }
 
-    if (cartItems.length === 0) {
-      alert("Your cart is empty!");
-      navigate("/products");
-      return;
-    }
-
-    setLoading(true);
-
+    setSubmitting(true);
+    setSubmitError("");
+    const snapshot = cartItems; // keep for the confirmation page (the server empties the cart)
     try {
-      const orderData = {
+      const res = await ordersAPI.create({
         shippingAddress: {
-          name: formData.name,
-          email: formData.email,
-          address: formData.address,
-          city: formData.city,
-          postalCode: formData.postalCode,
-          country: formData.country,
+          name: values.name.trim(),
+          email: values.email.trim(),
+          address: values.address.trim(),
+          city: values.city.trim(),
+          postalCode: values.postalCode.trim(),
+          country: values.country.trim(),
+          // the server reads the payment method from here
+          paymentMethod: values.paymentMethod,
         },
-        paymentMethod: formData.paymentMethod,
-        items: cartItems.map(item => ({
-          productId: item._id || item.id,
-          name: item.product?.name || item.name,
-          price: item.product?.new_price || item.product?.price || item.price || 0,
-          quantity: item.quantity || 1,
-          image: item.product?.image?.[0]?.url || item.product?.image?.url || item.product?.image || item.image?.[0]?.url || item.image?.url || item.image
-        })),
-        total: total,
-        orderDate: new Date().toISOString(),
-        status: "pending"
-      };
+        paymentMethod: values.paymentMethod,
+      });
 
-      console.log("Submitting order:", orderData);
-
-      const response = await ordersAPI.create(orderData);
-      
-      if (response.status === 200 || response.status === 201) {
-        await clearCart();
-        localStorage.removeItem('checkoutFormData');
-        
-        console.log("Order created successfully:", response.data);
-        
-        // ✅ FIXED: Redirect to correct route
-        navigate("/my-orders", { 
-          state: { 
-            orderId: response.data._id || response.data.id,
-            orderNumber: response.data.orderNumber,
-            success: true,
-            orderDate: new Date().toISOString()
-          }
-        });
-      } else {
-        throw new Error(`Unexpected response status: ${response.status}`);
+      try {
+        sessionStorage.removeItem(draftKey);
+      } catch {
+        /* ignore */
       }
-      
-    } catch (error) {
-      console.error("Order submission failed:", error);
-      
-      let errorMessage = "Network error. Please check your connection and try again.";
-      
-      if (error.response) {
-        // Server responded with error status
-        errorMessage = error.response.data?.message || 
-                      error.response.data?.error ||
-                      `Server error: ${error.response.status}`;
-      } else if (error.request) {
-        // Request made but no response received
-        errorMessage = "No response from server. Please try again.";
-      } else {
-        // Something else happened
-        errorMessage = error.message || "An unexpected error occurred.";
-      }
-      
-      alert(`❌ Order Failed: ${errorMessage}`);
-    } finally {
-      setLoading(false);
+      resetCart();
+      toast.success("Order placed!");
+      navigate("/order-success", {
+        replace: true,
+        state: { order: res.data.order || res.data, items: snapshot },
+      });
+    } catch (err) {
+      setSubmitError(getErrorMessage(err, "We couldn’t place your order. Please try again."));
+      setSubmitting(false);
     }
   };
 
-  // Input field configuration
-  const inputFields = [
-    { field: "name", type: "text", label: "Full Name *", placeholder: "Enter your full name" },
-    { field: "email", type: "email", label: "Email Address *", placeholder: "your.email@example.com" },
-    { field: "address", type: "text", label: "Street Address *", placeholder: "123 Main Street" },
-    { field: "city", type: "text", label: "City *", placeholder: "New York" },
-    { field: "postalCode", type: "text", label: "Postal Code", placeholder: "10001" },
-    { field: "country", type: "text", label: "Country *", placeholder: "United States" },
-  ];
+  if (!initialized) return <PageLoader message="Loading your cart…" />;
 
-  const paymentMethods = [
-    { value: "Card", label: "💳 Credit/Debit Card" },
-    { value: "PayPal", label: "🔗 PayPal" },
-    { value: "Cash", label: "💵 Cash on Delivery" },
-    { value: "BankTransfer", label: "🏦 Bank Transfer" },
-  ];
+  if (cartItems.length === 0 && !submitting) {
+    return (
+      <section className="page-container py-12">
+        <EmptyState
+          icon={ShoppingBag}
+          title="Your cart is empty"
+          message="Add something to your cart before checking out."
+          action={
+            <Link to="/products" className="btn btn-primary btn-lg">
+              Browse products
+            </Link>
+          }
+        />
+      </section>
+    );
+  }
 
   return (
-    <section className="max-w-5xl mx-auto px-6 py-16">
-      <motion.h1
-        className="text-3xl font-bold text-center text-slate-900 dark:text-white mb-10"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        Checkout
-      </motion.h1>
+    <section className="page-container py-8">
+      <h1 className="mb-6 text-3xl font-bold text-fg">Checkout</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-        {/* Shipping Information Form */}
+      <div className="grid gap-8 lg:grid-cols-5">
         <motion.form
           onSubmit={handleSubmit}
-          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-8 shadow-md"
-          initial={{ opacity: 0, x: -40 }}
-          animate={{ opacity: 1, x: 0 }}
+          noValidate
+          className="card p-6 sm:p-8 lg:col-span-3"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
         >
-          <h2 className="text-xl font-semibold text-indigo-500 mb-6">
-            Shipping Information
-          </h2>
+          <h2 className="mb-5 text-xl font-semibold text-fg">Shipping details</h2>
 
-          <div className="space-y-4">
-            {inputFields.map(({ field, type, label, placeholder }) => (
-              <div key={field}>
-                <label
-                  htmlFor={field}
-                  className="block text-slate-700 dark:text-slate-300 mb-2 font-medium"
-                >
-                  {label}
-                </label>
-                <input
-                  type={type}
-                  name={field}
-                  id={field}
-                  value={formData[field]}
-                  onChange={handleChange}
-                  onBlur={handleBlur}
-                  placeholder={placeholder}
-                  className={`w-full p-3 border rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors ${
-                    errors[field] && touched[field]
-                      ? "border-red-500 dark:border-red-400"
-                      : "border-slate-300 dark:border-slate-700"
-                  }`}
-                  required={label.includes("*")}
-                />
-                {errors[field] && touched[field] && (
-                  <p className="mt-1 text-sm text-red-500 dark:text-red-400 flex items-center gap-1">
-                    <span>⚠</span>
-                    {errors[field]}
-                  </p>
-                )}
-              </div>
-            ))}
-
-            {/* Payment Method */}
-            <div>
-              <label className="block text-slate-700 dark:text-slate-300 mb-2 font-medium">
-                Payment Method *
-              </label>
-              <select
-                name="paymentMethod"
-                value={formData.paymentMethod}
-                onChange={handleChange}
-                className="w-full p-3 border border-slate-300 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                required
-              >
-                {paymentMethods.map((method) => (
-                  <option key={method.value} value={method.value}>
-                    {method.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {FIELDS.map((f) => {
+              const showError = touched[f.name] && errors[f.name];
+              return (
+                <div key={f.name} className={f.full ? "sm:col-span-2" : ""}>
+                  <label htmlFor={f.name} className="label">
+                    {f.label}
+                  </label>
+                  <input
+                    id={f.name}
+                    name={f.name}
+                    type={f.type}
+                    autoComplete={f.autoComplete}
+                    placeholder={f.placeholder}
+                    value={values[f.name]}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    required={f.required}
+                    aria-invalid={Boolean(showError)}
+                    aria-describedby={showError ? `${f.name}-error` : undefined}
+                    className={`field ${showError ? "field-invalid" : ""}`}
+                  />
+                  {showError && (
+                    <p id={`${f.name}-error`} className="error-text">
+                      {errors[f.name]}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={loading || !isFormValid()}
-            className="mt-8 w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium rounded-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-[1.02] disabled:hover:scale-100"
-          >
-            {loading ? (
+          <fieldset className="mt-8">
+            <legend className="mb-3 text-xl font-semibold text-fg">Payment method</legend>
+            <div className="space-y-2">
+              {PAYMENT_METHODS.map((m) => (
+                <label
+                  key={m.value}
+                  className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3.5 transition-colors ${
+                    values.paymentMethod === m.value
+                      ? "border-brand bg-brand/10"
+                      : "border-line hover:bg-surface-2"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    value={m.value}
+                    checked={values.paymentMethod === m.value}
+                    onChange={handleChange}
+                    className="h-4 w-4 accent-brand"
+                  />
+                  <span className="font-medium text-fg">{m.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          {submitError && (
+            <div
+              role="alert"
+              className="mt-6 flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger-text"
+            >
+              <AlertCircle size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
+              <span>{submitError}</span>
+            </div>
+          )}
+
+          <button type="submit" disabled={submitting} className="btn btn-primary btn-lg mt-6 w-full">
+            {submitting ? (
               <>
-                <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Processing...
+                <Loader2 size={18} className="animate-spin" aria-hidden="true" /> Placing order…
               </>
             ) : (
-              `Place Order - $${(total || 0).toFixed(2)}`
+              <>Place order · {formatPrice(total)}</>
             )}
           </button>
-
-          {/* Form Validation Summary */}
-          {!isFormValid() && Object.keys(touched).length > 0 && (
-            <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-              <p className="text-amber-800 dark:text-amber-200 text-sm flex items-center gap-2">
-                <span>💡</span>
-                Please fix the errors above before placing your order
-              </p>
-            </div>
-          )}
+          <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted">
+            <Lock size={12} aria-hidden="true" /> Your information is sent over a secure connection.
+          </p>
         </motion.form>
 
-        {/* Order Summary */}
-        <motion.div
-          className="bg-slate-900 text-slate-200 rounded-xl p-8 shadow-lg sticky top-8"
-          initial={{ opacity: 0, x: 40 }}
-          animate={{ opacity: 1, x: 0 }}
-        >
-          <h2 className="text-xl font-semibold text-indigo-400 mb-6">
-            Order Summary
-          </h2>
-
-          {/* Cart Items */}
-          <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
-            {cartItems.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">
-                <p>Your cart is empty</p>
-                <button
-                  onClick={() => navigate("/products")}
-                  className="mt-4 text-indigo-400 hover:text-indigo-300 underline"
-                >
-                  Continue Shopping
-                </button>
-              </div>
-            ) : (
-              cartItems.map((item) => {
-                const price =
-                  item.product?.new_price ||
-                  item.product?.price ||
-                  item.price ||
-                  0;
-                const subtotal = price * (item.quantity || 1);
-
-                return (
-                  <div
-                    key={item._id || item.id}
-                    className="flex items-center justify-between border-b border-slate-700 pb-4"
-                  >
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={
-                          item.product?.image?.[0]?.url ||
-                          item.product?.image?.url ||
-                          item.product?.image ||
-                          item.image?.[0]?.url ||
-                          item.image?.url ||
-                          item.image ||
-                          "https://via.placeholder.com/100?text=No+Image"
-                        }
-                        alt={item.product?.name || item.name || "Product"}
-                        className="w-16 h-16 rounded-lg object-cover border border-slate-600"
-                        onError={(e) => {
-                          e.target.src =
-                            "https://via.placeholder.com/100?text=No+Image";
-                        }}
-                      />
-                      <div>
-                        <span className="text-sm text-slate-300 block font-medium">
-                          {item.product?.name || item.name}
-                        </span>
-                        <span className="text-xs text-slate-400">
-                          ${parseFloat(price).toFixed(2)} × {item.quantity}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-sm font-medium text-slate-200">
-                      ${subtotal.toFixed(2)}
-                    </span>
+        <aside className="card h-fit p-6 lg:sticky lg:top-24 lg:col-span-2" aria-label="Order summary">
+          <h2 className="mb-4 text-xl font-semibold text-fg">Order summary</h2>
+          <ul className="max-h-80 space-y-4 overflow-y-auto pr-1">
+            {cartItems.map((item) => {
+              const p = item.product;
+              return (
+                <li key={getId(item)} className="flex items-center gap-3">
+                  <img
+                    src={getImage(p, 120)}
+                    alt=""
+                    onError={onImgError}
+                    className="h-14 w-14 shrink-0 rounded-lg bg-surface-2 object-cover"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-1 text-sm font-medium text-fg">{p.name}</p>
+                    <p className="text-xs text-muted">
+                      {formatPrice(getPrice(p))} × {item.quantity}
+                    </p>
                   </div>
-                );
-              })
-            )}
-          </div>
-
-          {/* Order Total */}
-          {cartItems.length > 0 && (
-            <div className="border-t border-slate-700 mt-6 pt-4 space-y-2">
-              <div className="flex justify-between text-slate-300">
-                <span>Subtotal</span>
-                <span>${(total || 0).toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-slate-300">
-                <span>Shipping</span>
-                <span className="text-green-400">FREE</span>
-              </div>
-              <div className="flex justify-between text-lg font-semibold text-white pt-2 border-t border-slate-600">
-                <span>Total</span>
-                <span className="text-indigo-400">${(total || 0).toFixed(2)}</span>
-              </div>
+                  <p className="text-sm font-semibold text-fg">{formatPrice(getPrice(p) * item.quantity)}</p>
+                </li>
+              );
+            })}
+          </ul>
+          <dl className="mt-5 space-y-2 border-t border-line pt-4 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-muted">Subtotal</dt>
+              <dd className="text-fg">{formatPrice(total)}</dd>
             </div>
-          )}
-        </motion.div>
+            <div className="flex justify-between">
+              <dt className="text-muted">Shipping</dt>
+              <dd className="font-medium text-success-text">Free</dd>
+            </div>
+            <div className="flex justify-between pt-2 text-lg">
+              <dt className="font-semibold text-fg">Total</dt>
+              <dd className="font-bold text-fg">{formatPrice(total)}</dd>
+            </div>
+          </dl>
+          <Link to="/cart" className="mt-4 block text-center text-sm text-muted hover:text-fg hover:underline">
+            ← Edit cart
+          </Link>
+        </aside>
       </div>
-
-      {/* Security Notice */}
-      <motion.div 
-        className="mt-8 text-center text-slate-500 dark:text-slate-400 text-sm"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5 }}
-      >
-        <p>🔒 Your information is secure and encrypted</p>
-      </motion.div>
-
-      <style jsx>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: #334155;
-          border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #6366f1;
-          border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #4f46e5;
-        }
-      `}</style>
     </section>
   );
 };
 
-export default Order;
+export default Checkout;

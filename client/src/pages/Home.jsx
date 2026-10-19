@@ -1,172 +1,182 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import { ArrowRight, RefreshCw, Shield, Truck } from "lucide-react";
 import Item from "../components/Item";
+import { ProductGridSkeleton } from "../components/Skeletons";
 import { productsAPI } from "../services/api";
+import useDocumentTitle from "../hooks/useDocumentTitle";
+import useSlowLoading from "../hooks/useSlowLoading";
+import { getCategoryName, getId, getRating } from "../utils/format";
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 24 },
   visible: { opacity: 1, y: 0 },
 };
 
+const PERKS = [
+  { icon: Truck, title: "Free shipping", text: "On every order" },
+  { icon: Shield, title: "1 year warranty", text: "On all products" },
+  { icon: RefreshCw, title: "30-day returns", text: "Hassle-free" },
+];
+
 const Home = () => {
-  const [featured, setFeatured] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const slow = useSlowLoading(loading);
+
+  useDocumentTitle();
 
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+    (async () => {
       try {
-        setLoading(true);
-        const res = await productsAPI.getAll({ limit: 20 });
-        const data = res.data.products || res.data || [];
-        if (!cancelled) {
-          const sortedByRating = [...data].sort(
-            (a, b) => getRating(b) - getRating(a)
-          );
-          setFeatured(sortedByRating.slice(0, 4));
-
-          const setCats = new Set();
-          data.forEach((p) => {
-            let categoryName = "";
-
-    
-            if (typeof p.category === "string") {
-              categoryName = p.category.toLowerCase();
-            } else if (p.category && typeof p.category === "object") {
-              categoryName = (
-                p.category.name ||
-                p.category.title ||
-                ""
-              ).toLowerCase();
-            } else if (Array.isArray(p.categories)) {
-              categoryName = p.categories[0]?.name || p.categories[0] || "";
-              if (typeof categoryName === "object") {
-                categoryName = categoryName.name || "";
-              }
-              categoryName = categoryName.toLowerCase();
-            } else if (typeof p.categories === "string") {
-              categoryName = p.categories.toLowerCase();
-            }
-
-            if (categoryName && categoryName !== "[object object]") {
-              setCats.add(categoryName);
-            }
-          });
-
-          const categoryArray = Array.from(setCats).filter(
-            (cat) => cat && cat !== "[object object]" && cat !== "undefined"
-          );
-
-          setCategories(categoryArray);
-        }
+        const res = await productsAPI.getAll();
+        if (!cancelled) setProducts(res.data.products || res.data || []);
       } catch (err) {
         console.error(err);
+        if (!cancelled) setError(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
+    })();
+    return () => {
+      cancelled = true;
     };
-    load();
-    return () => (cancelled = true);
   }, []);
 
-  const getRating = (product) => {
-    if (product.rating && typeof product.rating === "number") {
-      return product.rating;
-    }
-    if (product.rating && product.rating.average) {
-      return product.rating.average;
-    }
-    if (product.product?.rating?.average) {
-      return product.product.rating.average;
-    }
-    if (product.reviews && Array.isArray(product.reviews)) {
-      const avg =
-        product.reviews.reduce((sum, review) => sum + (review.rating || 0), 0) /
-        product.reviews.length;
-      return isNaN(avg) ? 0 : avg;
-    }
-    return 0;
-  };
+  const featured = useMemo(
+    () => [...products].sort((a, b) => getRating(b) - getRating(a)).slice(0, 4),
+    [products]
+  );
+
+  const categories = useMemo(() => {
+    const names = new Set(products.map(getCategoryName).filter(Boolean));
+    return [...names].sort();
+  }, [products]);
 
   return (
     <>
-  
-      <section className="relative w-full bg-slate-900 text-white overflow-hidden">
+      {/* Hero — always dark with light text, independent of the theme */}
+      <section className="relative isolate overflow-hidden bg-slate-900 text-white">
         <img
-          src="https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1600&q=80"
-          alt="Hero"
-          className="absolute inset-0 w-full h-full object-cover opacity-30"
+          src="https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1600&q=70"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 -z-10 h-full w-full object-cover opacity-30"
         />
-        <div className="relative z-10 max-w-7xl mx-auto px-6 py-32 text-center">
+        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-slate-900/40 to-slate-900" />
+        <div className="page-container py-20 text-center sm:py-28">
           <motion.h1
-            className="text-4xl md:text-6xl font-bold mb-6 leading-tight"
+            className="text-4xl font-extrabold leading-tight sm:text-6xl"
             initial="hidden"
             animate="visible"
             variants={fadeInUp}
           >
-            Upgrade Your Tech,{" "}
-            <span className="text-yellow-400">Empower Your Life</span>
+            Upgrade your tech,{" "}
+            <span className="text-yellow-400">empower your life</span>
           </motion.h1>
           <motion.p
-            className="text-lg text-slate-300 mb-8 max-w-2xl mx-auto"
+            className="mx-auto mt-5 max-w-2xl text-lg text-slate-300"
             initial="hidden"
             animate="visible"
             variants={fadeInUp}
-            transition={{ delay: 0.2 }}
+            transition={{ delay: 0.15 }}
           >
-            Discover premium laptops, gadgets, and accessories at unbeatable
-            prices.
+            Premium laptops, headphones, smartwatches and accessories at prices that make sense.
           </motion.p>
+          <motion.div
+            className="mt-8 flex flex-wrap items-center justify-center gap-3"
+            initial="hidden"
+            animate="visible"
+            variants={fadeInUp}
+            transition={{ delay: 0.3 }}
+          >
+            <Link to="/products" className="btn btn-accent btn-lg">
+              Shop now <ArrowRight size={18} aria-hidden="true" />
+            </Link>
+          </motion.div>
         </div>
       </section>
 
-      {/* <section className="max-w-7xl mx-auto px-6 py-12">
-        <h2 className="text-2xl font-semibold text-slate-800 mb-6">
-          Shop by category
-        </h2>
-        <div className="flex gap-4 flex-wrap">
-          {loading ? (
-            <p className="text-slate-500">Loading categories…</p>
-          ) : categories.length ? (
-            categories.map((c) => (
-              <span
+      {/* Perks */}
+      <section className="page-container -mt-6 relative z-10">
+        <ul className="card grid grid-cols-1 divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          {PERKS.map(({ icon: Icon, title, text }) => (
+            <li key={title} className="flex items-center gap-3 px-5 py-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand-text">
+                <Icon size={20} aria-hidden="true" />
+              </span>
+              <div>
+                <p className="font-semibold text-fg">{title}</p>
+                <p className="text-sm text-muted">{text}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* Categories */}
+      {categories.length > 0 && (
+        <section className="page-container pt-12">
+          <h2 className="mb-4 text-2xl font-bold text-fg">Shop by category</h2>
+          <div className="flex flex-wrap gap-3">
+            {categories.map((c) => (
+              <Link
                 key={c}
-                className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors capitalize"
+                to={`/products?category=${encodeURIComponent(c)}`}
+                className="card px-5 py-2.5 text-sm font-semibold capitalize text-fg transition-colors hover:border-brand hover:text-brand-text"
               >
                 {c}
-              </span>
-            ))
-          ) : (
-            <p className="text-slate-500">No categories available.</p>
-          )}
-        </div>
-      </section> */}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
-      <section className="max-w-7xl mx-auto px-6 py-12">
-        <h2 className="text-3xl font-bold text-slate-900 mb-8">
-          Featured Products
-        </h2>
-        <div className="grid gap-8 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {featured.length ? (
-            featured.map((p, i) => (
+      {/* Featured */}
+      <section className="page-container py-12">
+        <div className="mb-6 flex items-end justify-between gap-4">
+          <h2 className="text-2xl font-bold text-fg sm:text-3xl">Top rated products</h2>
+          <Link
+            to="/products"
+            className="inline-flex items-center gap-1 text-sm font-semibold text-brand-text hover:underline"
+          >
+            View all <ArrowRight size={16} aria-hidden="true" />
+          </Link>
+        </div>
+
+        {loading ? (
+          <>
+            <ProductGridSkeleton count={4} />
+            {slow && (
+              <p className="mt-6 text-center text-sm text-muted" role="status">
+                Waking up the server — the first load can take up to a minute. Thanks for waiting!
+              </p>
+            )}
+          </>
+        ) : error ? (
+          <p className="card p-8 text-center text-muted" role="alert">
+            We couldn’t load products right now. Please refresh the page in a moment.
+          </p>
+        ) : featured.length ? (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {featured.map((p, i) => (
               <motion.div
-                key={p._id ?? p.id ?? i}
+                key={getId(p) ?? i}
                 initial="hidden"
                 animate="visible"
                 variants={fadeInUp}
+                transition={{ delay: i * 0.05 }}
               >
-                <Item
-                  {...p}
-                  new_price={p.price ?? p.new_price}
-                  rating={getRating(p)}
-                />
+                <Item product={p} />
               </motion.div>
-            ))
-          ) : (
-            <p className="text-slate-500">No featured products available.</p>
-          )}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <p className="card p-8 text-center text-muted">No products available yet.</p>
+        )}
       </section>
     </>
   );

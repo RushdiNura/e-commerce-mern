@@ -1,202 +1,194 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { authAPI } from "../services/api"; 
-
-const fadeInUp = {
-  hidden: { opacity: 0, y: 30 },
-  visible: { opacity: 1, y: 0 },
-};
+import { useState } from "react";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
+import toast from "react-hot-toast";
+import { useAuth } from "../context/AuthContext";
+import useDocumentTitle from "../hooks/useDocumentTitle";
+import { getErrorMessage } from "../utils/format";
+import { BRAND } from "../config";
 
 const Login = () => {
+  const { user, login, register } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [isSignup, setIsSignup] = useState(false);
-  const [showToast, setShowToast] = useState(false);
-  const [toastMessage, setToastMessage] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ name: "", email: "", password: "" });
 
-  const [formData, setFormData] = useState({
-    name: "", 
-    email: "",
-    password: "",
-    role: "user",
-  });
+  useDocumentTitle(isSignup ? "Create account" : "Log in");
+
+  // Where to go after logging in (the page they tried to open, or home).
+  const redirectTo = location.state?.from?.pathname || "/";
+
+  if (user) return <Navigate to={user.role === "admin" ? "/admin" : redirectTo} replace />;
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((f) => ({ ...f, [name]: value }));
+    setForm((f) => ({ ...f, [name]: value }));
+    if (error) setError("");
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
+    setError("");
+    setSubmitting(true);
     try {
-      let response;
+      const me = isSignup
+        ? await register({
+            name: form.name.trim(),
+            email: form.email.trim(),
+            password: form.password,
+            role: "user", // customers only; admins are created by the store owner
+          })
+        : await login({ email: form.email.trim(), password: form.password });
 
-      console.log("🔄 Attempting:", isSignup ? "Signup" : "Login");
-      console.log("📧 Email:", formData.email);
-
-      if (isSignup) {
-        response = await authAPI.register({
-          name: formData.name,
-          email: formData.email,
-          password: formData.password,
-          role: formData.role,
-        });
-      } else {
-        response = await authAPI.login({
-          email: formData.email,
-          password: formData.password,
-        });
-      }
-
-      console.log("✅ Backend Response:", response.data);
-
-      if (response.data.success) {
-        localStorage.setItem("token", response.data.token);
-        localStorage.setItem("user", JSON.stringify(response.data.user));
-
-        setToastMessage(isSignup ? "Signup successful!" : "Login successful!");
-        setShowToast(true);
-
-        setTimeout(() => {
-          const user = response.data.user;
-          if (user.role === "admin") navigate("/admin");
-          else navigate("/");
-        }, 1000);
-      }
-    } catch (error) {
-      console.error("❌ Full error details:", {
-        status: error.response?.status,
-        data: error.response?.data,
-        message: error.message,
-        config: error.config?.url,
-      });
-
-      const message =
-        error.response?.data?.message ||
-        (isSignup ? "Signup failed" : "Login failed");
-      setToastMessage(message);
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 2500);
+      toast.success(isSignup ? "Account created — welcome!" : `Welcome back, ${me.name.split(" ")[0]}!`);
+      navigate(me.role === "admin" ? "/admin" : redirectTo, { replace: true });
+    } catch (err) {
+      setError(getErrorMessage(err, isSignup ? "Sign up failed" : "Login failed"));
+      setSubmitting(false);
     }
   };
 
+  const switchMode = () => {
+    setIsSignup((s) => !s);
+    setError("");
+    setShowPassword(false);
+  };
+
   return (
-    <section className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-slate-950 px-4">
-      <AnimatePresence>
-        {showToast && (
-          <motion.div
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            transition={{ duration: 0.4 }}
-            className="fixed bottom-6 right-6 bg-indigo-600 text-white flex items-center gap-3 px-5 py-3 rounded-xl shadow-xl z-50"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-5 h-5 text-yellow-300"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path d="M5 13l4 4L19 7" />
-            </svg>
-            <span className="font-medium">{toastMessage}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
+    <section className="flex min-h-[calc(100vh-14rem)] items-center justify-center py-8">
       <motion.div
-        className="bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-xl w-full max-w-md"
-        initial="hidden"
-        animate="visible"
-        variants={fadeInUp}
-        transition={{ duration: 0.6 }}
+        className="card w-full max-w-md p-6 shadow-xl sm:p-8"
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
       >
-        <h1 className="text-3xl font-bold text-center text-slate-900 dark:text-white mb-6">
-          {isSignup ? "Create an Account" : "Welcome Back"}
-        </h1>
+        <div className="mb-6 text-center">
+          <p className="text-sm font-bold uppercase tracking-widest text-brand-text">{BRAND}</p>
+          <h1 className="mt-2 text-3xl font-bold text-fg">
+            {isSignup ? "Create an account" : "Welcome back"}
+          </h1>
+          <p className="mt-2 text-sm text-muted">
+            {isSignup
+              ? "Sign up to save your cart and track your orders."
+              : "Log in to continue shopping."}
+          </p>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        {error && (
+          <div
+            role="alert"
+            className="mb-5 flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger-text"
+          >
+            <AlertCircle size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
           {isSignup && (
-            <>
-              <div>
-                <label className="block text-sm text-slate-600 dark:text-slate-300">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  required
-                  className="w-full mt-1 p-3 border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent text-slate-900 dark:text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm text-slate-600 dark:text-slate-300">
-                  Role
-                </label>
-                <select
-                  name="role"
-                  value={formData.role}
-                  onChange={handleChange}
-                  className="w-full mt-1 p-3 border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent text-slate-900 dark:text-white"
-                >
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-            </>
+            <div>
+              <label htmlFor="name" className="label">
+                Full name
+              </label>
+              <input
+                id="name"
+                name="name"
+                type="text"
+                autoComplete="name"
+                value={form.name}
+                onChange={handleChange}
+                required
+                minLength={2}
+                placeholder="Jane Doe"
+                className="field"
+              />
+            </div>
           )}
 
           <div>
-            <label className="block text-sm text-slate-600 dark:text-slate-300">
-              Email Address
+            <label htmlFor="email" className="label">
+              Email address
             </label>
             <input
-              type="email"
+              id="email"
               name="email"
-              value={formData.email}
+              type="email"
+              autoComplete="email"
+              value={form.email}
               onChange={handleChange}
               required
-              className="w-full mt-1 p-3 border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent text-slate-900 dark:text-white"
+              placeholder="you@example.com"
+              className="field"
             />
           </div>
 
           <div>
-            <label className="block text-sm text-slate-600 dark:text-slate-300">
+            <label htmlFor="password" className="label">
               Password
             </label>
-            <input
-              type="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              required
-              className="w-full mt-1 p-3 border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent text-slate-900 dark:text-white"
-            />
+            <div className="relative">
+              <input
+                id="password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete={isSignup ? "new-password" : "current-password"}
+                value={form.password}
+                onChange={handleChange}
+                required
+                minLength={isSignup ? 6 : undefined}
+                placeholder={isSignup ? "At least 6 characters" : "Your password"}
+                className="field pr-11"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((s) => !s)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-muted transition-colors hover:text-fg"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
-          <button
-            type="submit"
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg shadow-lg transition"
-          >
-            {isSignup ? "Sign Up" : "Login"}
+          <button type="submit" disabled={submitting} className="btn btn-primary btn-lg w-full">
+            {submitting ? (
+              <>
+                <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+                {isSignup ? "Creating account…" : "Logging in…"}
+              </>
+            ) : isSignup ? (
+              "Create account"
+            ) : (
+              "Log in"
+            )}
           </button>
+          {submitting && (
+            <p className="text-center text-xs text-muted">
+              The first request can take a few seconds while the server wakes up.
+            </p>
+          )}
         </form>
 
-        <p className="text-center text-slate-600 dark:text-slate-300 mt-6">
-          {isSignup ? "Already have an account?" : "Don’t have an account?"}{" "}
+        <p className="mt-6 text-center text-sm text-muted">
+          {isSignup ? "Already have an account?" : "New to " + BRAND + "?"}{" "}
           <button
-            onClick={() => setIsSignup(!isSignup)}
-            className="text-indigo-600 hover:text-indigo-700 font-semibold"
+            type="button"
+            onClick={switchMode}
+            className="font-semibold text-brand-text underline-offset-4 hover:underline"
           >
-            {isSignup ? "Login here" : "Sign up here"}
+            {isSignup ? "Log in" : "Create an account"}
           </button>
+        </p>
+        <p className="mt-4 text-center text-sm">
+          <Link to="/products" className="text-muted underline-offset-4 hover:text-fg hover:underline">
+            Continue browsing without an account
+          </Link>
         </p>
       </motion.div>
     </section>

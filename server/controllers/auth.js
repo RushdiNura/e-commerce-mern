@@ -6,9 +6,13 @@ dotenv.config()
 
 export const register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    // SECURITY: never trust a role sent by the browser — anyone could make
+    // themselves an admin. Public sign-up always creates a normal customer.
+    // (Create admins with the seed script or directly in the database.)
+    const { name, email, password } = req.body;
+    const role = "user";
 
-    if (!name || !email || !password || !role) {
+    if (!name || !email || !password) {
       return res
         .status(400)
         .json({ success: false, message: "All fields are required" });
@@ -26,7 +30,7 @@ export const register = async (req, res) => {
       name, // ✅ matches frontend
       email,
       password: hashedPassword,
-      role: role || "customer",
+      role,
     });
 
     const token = jwt.sign(

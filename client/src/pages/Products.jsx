@@ -1,273 +1,285 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { ChevronLeft, ChevronRight, Search, SearchX, X } from "lucide-react";
 import Item from "../components/Item";
+import EmptyState from "../components/EmptyState";
+import { ProductGridSkeleton } from "../components/Skeletons";
 import { productsAPI } from "../services/api";
+import useDocumentTitle from "../hooks/useDocumentTitle";
+import useSlowLoading from "../hooks/useSlowLoading";
+import { PAGE_SIZE } from "../config";
+import { getCategoryName, getId, getPrice, getRating } from "../utils/format";
 
-const fadeInUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: { opacity: 1, y: 0 },
-};
-
+// The filters live in the URL (?q=&category=&sort=&page=) so that the back
+// button, refresh and shared links all keep working.
 const Products = () => {
+  const [params, setParams] = useSearchParams();
+  const q = params.get("q") || "";
+  const category = (params.get("category") || "").toLowerCase();
+  const sort = params.get("sort") || "default";
+  const page = Math.max(1, parseInt(params.get("page") || "1", 10) || 1);
+
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("");
-  const [sort, setSort] = useState("default");
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12;
+  const [search, setSearch] = useState(q);
+  const slow = useSlowLoading(loading);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        setLoading(true);
-        const res = await productsAPI.getAll();
-        const data = res.data.products || res.data || [];
-        if (!cancelled) setProducts(data);
-      } catch (err) {
-        console.error(err);
-        if (!cancelled) setError("Failed to load products.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    load();
-    return () => (cancelled = true);
-  }, []);
+  useDocumentTitle("Products");
 
-  
-  const getRating = (product) => {
-  
-    if (product.rating && typeof product.rating === "number") {
-      return product.rating;
+  const load = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await productsAPI.getAll();
+      setProducts(res.data.products || res.data || []);
+    } catch (err) {
+      console.error(err);
+      setError("We couldn’t load the products. Please check your connection and try again.");
+    } finally {
+      setLoading(false);
     }
-    if (product.rating && product.rating.average) {
-      return product.rating.average;
-    }
-    if (product.product?.rating?.average) {
-      return product.product.rating.average;
-    }
-    if (product.reviews && Array.isArray(product.reviews)) {
-     
-      const avg =
-        product.reviews.reduce((sum, review) => sum + (review.rating || 0), 0) /
-        product.reviews.length;
-      return isNaN(avg) ? 0 : avg;
-    }
-    return 0;
   };
 
-  const categories = useMemo(() => {
-    const set = new Set();
+  useEffect(() => {
+    load();
+  }, []);
 
-    products.forEach((p) => {
-      let categoryName = "";
-
-      if (typeof p.category === "string") {
-        categoryName = p.category.toLowerCase();
-      } else if (p.category && typeof p.category === "object") {
-        categoryName = (
-          p.category.name ||
-          p.category.title ||
-          ""
-        ).toLowerCase();
-      } else if (Array.isArray(p.categories)) {
-        categoryName = p.categories[0]?.name || p.categories[0] || "";
-        if (typeof categoryName === "object") {
-          categoryName = categoryName.name || "";
-        }
-        categoryName = categoryName.toLowerCase();
-      } else if (typeof p.categories === "string") {
-        categoryName = p.categories.toLowerCase();
-      }
-
-      if (categoryName && categoryName !== "[object object]") {
-        set.add(categoryName);
-      }
-    });
-
-    const categoryArray = Array.from(set).filter(
-      (cat) => cat && cat !== "[object object]" && cat !== "undefined"
+  // Uses the functional form so a delayed (debounced) update never overwrites
+  // a filter the user changed in the meantime.
+  const update = (changes, { resetPage = true } = {}) => {
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        Object.entries(changes).forEach(([k, v]) => {
+          if (v === "" || v == null || v === "default" || v === "all") next.delete(k);
+          else next.set(k, String(v));
+        });
+        if (resetPage) next.delete("page");
+        return next;
+      },
+      { replace: true }
     );
+  };
 
-    return ["all", ...categoryArray];
+  // Debounce the search box so we don't re-filter on every keystroke.
+  const lastPushed = useRef(q);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const value = search.trim();
+      if (value !== q) {
+        lastPushed.current = value;
+        update({ q: value });
+      }
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
+
+  // Keep the box in sync when the URL changes from elsewhere (back button, links).
+  useEffect(() => {
+    if (q !== lastPushed.current) {
+      lastPushed.current = q;
+      setSearch(q);
+    }
+  }, [q]);
+
+  const categories = useMemo(() => {
+    const names = new Set(products.map((p) => getCategoryName(p).toLowerCase()).filter(Boolean));
+    return [...names].sort();
   }, [products]);
-
-  useEffect(() => setCurrentPage(1), [search, category, sort]);
-
-  const getPrice = (p) => p.price ?? p.new_price ?? 0;
 
   const filtered = useMemo(() => {
     let list = [...products];
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
+    if (q) {
+      const needle = q.toLowerCase();
       list = list.filter(
         (p) =>
-          (p.name || "").toString().toLowerCase().includes(q) ||
-          (p.description || "").toString().toLowerCase().includes(q)
+          (p.name || "").toLowerCase().includes(needle) ||
+          (p.description || "").toLowerCase().includes(needle)
       );
     }
-
-    if (category && category !== "all") {
-      list = list.filter((p) => {
-        let productCategory = "";
-
-        if (typeof p.category === "string") {
-          productCategory = p.category.toLowerCase();
-        } else if (p.category && typeof p.category === "object") {
-          productCategory = (
-            p.category.name ||
-            p.category.title ||
-            ""
-          ).toLowerCase();
-        } else if (Array.isArray(p.categories)) {
-          productCategory = p.categories[0]?.name || p.categories[0] || "";
-          if (typeof productCategory === "object") {
-            productCategory = productCategory.name || "";
-          }
-          productCategory = productCategory.toLowerCase();
-        } else if (typeof p.categories === "string") {
-          productCategory = p.categories.toLowerCase();
-        }
-
-        return productCategory === category;
-      });
-    }
-
-    if (sort === "lowToHigh") {
-      list.sort((a, b) => getPrice(a) - getPrice(b));
-    } else if (sort === "highToLow") {
-      list.sort((a, b) => getPrice(b) - getPrice(a));
-    } else if (sort === "rating") {
-      list.sort((a, b) => getRating(b) - getRating(a));
-    }
-
+    if (category) list = list.filter((p) => getCategoryName(p).toLowerCase() === category);
+    if (sort === "lowToHigh") list.sort((a, b) => getPrice(a) - getPrice(b));
+    else if (sort === "highToLow") list.sort((a, b) => getPrice(b) - getPrice(a));
+    else if (sort === "rating") list.sort((a, b) => getRating(b) - getRating(a));
     return list;
-  }, [products, search, category, sort]);
+  }, [products, q, category, sort]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
-  const paginated = filtered.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const visible = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const hasFilters = Boolean(q || category || sort !== "default");
 
-  const handlePage = (p) => {
-    setCurrentPage(p);
+  const goToPage = (p) => {
+    update({ page: p }, { resetPage: false });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  if (loading)
-    return (
-      <div className="max-w-7xl mx-auto px-6 py-20 text-center">
-        <p className="text-slate-500">Loading products…</p>
-      </div>
-    );
+  const clearFilters = () => {
+    lastPushed.current = "";
+    setSearch("");
+    setParams({}, { replace: true });
+  };
 
-  if (error)
-    return (
-      <div className="max-w-7xl mx-auto px-6 py-20 text-center">
-        <p className="text-red-500">{error}</p>
-      </div>
-    );
+  // Compact page list: 1 … 4 5 6 … 12
+  const pageNumbers = useMemo(() => {
+    const set = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+    const nums = [...set].filter((n) => n >= 1 && n <= totalPages).sort((a, b) => a - b);
+    const out = [];
+    nums.forEach((n, i) => {
+      if (i > 0 && n - nums[i - 1] > 1) out.push("gap-" + n);
+      out.push(n);
+    });
+    return out;
+  }, [currentPage, totalPages]);
 
   return (
-    <section className="max-w-7xl mx-auto px-6 py-0">
-      <motion.h1
-        className="text-4xl font-bold text-center text-slate-900 dark:text-white mb-8"
-        initial="hidden"
-        animate="visible"
-        variants={fadeInUp}
-      >
-        Explore Our Products
-      </motion.h1>
+    <section className="page-container py-8">
+      <header className="mb-6">
+        <h1 className="text-3xl font-bold text-fg">Products</h1>
+        {!loading && !error && (
+          <p className="mt-1 text-sm text-muted" aria-live="polite">
+            {filtered.length} product{filtered.length === 1 ? "" : "s"}
+            {hasFilters ? " match your filters" : ""}
+          </p>
+        )}
+      </header>
 
-      <motion.div
-        className="flex flex-col sm:flex-row items-center gap-4 mb-8 bg-white/90 dark:bg-slate-800/80 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700"
-        initial="hidden"
-        animate="visible"
-        variants={fadeInUp}
-      >
-        <input
-          className="w-full sm:w-1/3 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-yellow-400"
-          placeholder="Search products or descriptions..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      {/* Filters */}
+      <div className="card mb-6 flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search
+            size={18}
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search products…"
+            aria-label="Search products"
+            className="field pl-10"
+          />
+        </div>
 
         <select
-          className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
           value={category || "all"}
-          onChange={(e) => setCategory(e.target.value)}
+          onChange={(e) => update({ category: e.target.value })}
+          aria-label="Filter by category"
+          className="field sm:w-52"
         >
+          <option value="all">All categories</option>
           {categories.map((c) => (
             <option key={c} value={c}>
-              {c === "all"
-                ? "All Categories"
-                : c.charAt(0).toUpperCase() + c.slice(1)}
+              {c.charAt(0).toUpperCase() + c.slice(1)}
             </option>
           ))}
         </select>
 
         <select
-          className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
           value={sort}
-          onChange={(e) => setSort(e.target.value)}
+          onChange={(e) => update({ sort: e.target.value })}
+          aria-label="Sort products"
+          className="field sm:w-52"
         >
           <option value="default">Sort by</option>
-          <option value="lowToHigh">Price: Low to High</option>
-          <option value="highToLow">Price: High to Low</option>
-          <option value="rating">Top Rated</option>
+          <option value="lowToHigh">Price: low to high</option>
+          <option value="highToLow">Price: high to low</option>
+          <option value="rating">Top rated</option>
         </select>
-      </motion.div>
 
-      {paginated.length > 0 ? (
-        <motion.div
-          className="grid gap-8 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
-          initial="hidden"
-          animate="visible"
-          variants={fadeInUp}
-        >
-          {paginated.map((p, i) => (
-            <motion.div
-              key={p._id ?? p.id ?? i}
-              whileHover={{ scale: 1.03, y: -6 }}
-              transition={{ duration: 0.18 }}
-            >
-              <Item
-                {...p}
-                new_price={p.price ?? p.new_price}
-                image={p.image}
-                rating={getRating(p)} 
-              />
-            </motion.div>
-          ))}
-        </motion.div>
+        {hasFilters && (
+          <button type="button" onClick={clearFilters} className="btn btn-ghost whitespace-nowrap">
+            <X size={16} aria-hidden="true" /> Clear
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <>
+          <ProductGridSkeleton count={8} />
+          {slow && (
+            <p className="mt-6 text-center text-sm text-muted" role="status">
+              Waking up the server — the first load can take up to a minute. Thanks for waiting!
+            </p>
+          )}
+        </>
+      ) : error ? (
+        <EmptyState
+          icon={SearchX}
+          title="Couldn’t load products"
+          message={error}
+          action={
+            <button type="button" className="btn btn-primary" onClick={load}>
+              Try again
+            </button>
+          }
+        />
+      ) : visible.length === 0 ? (
+        <EmptyState
+          icon={SearchX}
+          title="No products found"
+          message={
+            hasFilters
+              ? "Try a different search or remove some filters."
+              : "There are no products yet. Please check back soon."
+          }
+          action={
+            hasFilters && (
+              <button type="button" className="btn btn-primary" onClick={clearFilters}>
+                Clear filters
+              </button>
+            )
+          }
+        />
       ) : (
-        <p className="text-center text-slate-500 mt-12">No products found.</p>
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {visible.map((p, i) => (
+            <Item key={getId(p) ?? i} product={p} />
+          ))}
+        </div>
       )}
 
-      {totalPages > 1 && (
-        <div className="flex justify-center gap-2 mt-12">
-          {Array.from({ length: totalPages }).map((_, idx) => {
-            const p = idx + 1;
-            return (
+      {totalPages > 1 && !loading && !error && (
+        <nav aria-label="Pagination" className="mt-10 flex items-center justify-center gap-1.5">
+          <button
+            type="button"
+            className="btn btn-secondary !px-3"
+            disabled={currentPage === 1}
+            onClick={() => goToPage(currentPage - 1)}
+            aria-label="Previous page"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          {pageNumbers.map((n) =>
+            typeof n === "string" ? (
+              <span key={n} className="px-1 text-muted" aria-hidden="true">
+                …
+              </span>
+            ) : (
               <button
-                key={p}
-                onClick={() => handlePage(p)}
-                className={`px-4 py-2 rounded-lg border ${
-                  currentPage === p
-                    ? "bg-indigo-600 text-white border-indigo-600"
-                    : "bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-700"
-                }`}
+                key={n}
+                type="button"
+                onClick={() => goToPage(n)}
+                aria-current={n === currentPage ? "page" : undefined}
+                className={`btn !px-3.5 ${n === currentPage ? "btn-primary" : "btn-secondary"}`}
               >
-                {p}
+                {n}
               </button>
-            );
-          })}
-        </div>
+            )
+          )}
+          <button
+            type="button"
+            className="btn btn-secondary !px-3"
+            disabled={currentPage === totalPages}
+            onClick={() => goToPage(currentPage + 1)}
+            aria-label="Next page"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </nav>
       )}
     </section>
   );

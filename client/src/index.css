@@ -1,1 +1,192 @@
 @import "tailwindcss";
+
+/* Dark mode is controlled by a `.dark` class on <html> (see ThemeContext),
+   NOT by the OS setting. This is what fixes the "invisible text" problem:
+   previously half the app reacted to the OS dark mode and half did not. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------
+   Design tokens. Every surface/text colour is defined ONCE here, with
+   a light and a dark value that are checked for contrast. Components use
+   semantic classes (bg-surface, text-fg, text-muted, border-line ...)
+   so a text colour can never end up on the wrong background again.
+------------------------------------------------------------------- */
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-placeholder: var(--placeholder);
+  --color-line: var(--line);
+  --color-field: var(--field-border);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-text: var(--brand-text);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-text: var(--danger-text);
+  --color-success: var(--success);
+  --color-success-text: var(--success-text);
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+}
+
+:root {
+  color-scheme: light;
+  --page: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --fg: #0f172a;
+  --muted: #475569;
+  --placeholder: #64748b;
+  --line: #e2e8f0;
+  --field-border: #8695aa;
+
+  --brand: #4f46e5;
+  --brand-hover: #4338ca;
+  --brand-text: #4338ca;
+  --accent: #facc15;
+  --accent-fg: #0f172a;
+
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-text: #b91c1c;
+  --success: #15803d;
+  --success-text: #166534;
+  --warning: #b45309;
+  --warning-text: #92400e;
+}
+
+.dark {
+  color-scheme: dark;
+  --page: #020617;
+  --surface: #0f172a;
+  --surface-2: #1e293b;
+  --fg: #f1f5f9;
+  --muted: #a3b1c6;
+  --placeholder: #94a3b8;
+  --line: #273449;
+  --field-border: #64748b;
+
+  --brand: #4f46e5;
+  --brand-hover: #4338ca;
+  --brand-text: #a5b4fc;
+  --accent: #facc15;
+  --accent-fg: #0f172a;
+
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-text: #fca5a5;
+  --success: #16a34a;
+  --success-text: #86efac;
+  --warning: #f59e0b;
+  --warning-text: #fcd34d;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-page font-sans text-fg antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand-text);
+    outline-offset: 2px;
+  }
+  /* Native dropdown lists must follow the theme, otherwise white text can
+     end up on the browser's white list background (invisible options). */
+  option,
+  optgroup {
+    background-color: var(--surface);
+    color: var(--fg);
+  }
+  /* Browser autofill paints its own background; keep text readable in both themes. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: var(--fg);
+    caret-color: var(--fg);
+    box-shadow: 0 0 0 1000px var(--surface) inset;
+    transition: background-color 9999s ease-out 0s;
+  }
+  input[type="search"]::-webkit-search-cancel-button {
+    cursor: pointer;
+  }
+}
+
+@layer components {
+  .page-container {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors select-none disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .btn-primary {
+    @apply bg-brand text-white hover:bg-brand-hover;
+  }
+  .btn-secondary {
+    @apply border border-field bg-surface text-fg hover:bg-surface-2;
+  }
+  .btn-accent {
+    @apply bg-accent text-accent-fg hover:brightness-95;
+  }
+  .btn-danger {
+    @apply bg-danger text-white hover:bg-danger-hover;
+  }
+  .btn-ghost {
+    @apply text-muted hover:bg-surface-2 hover:text-fg;
+  }
+  .btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-field bg-surface px-3.5 py-2.5 text-sm text-fg transition placeholder:text-placeholder focus:border-brand focus:ring-2 focus:ring-brand/30 focus:outline-none disabled:opacity-60;
+  }
+  .field-invalid {
+    border-color: var(--danger-text);
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-fg;
+  }
+  .hint {
+    @apply mt-1 text-xs text-muted;
+  }
+  .error-text {
+    @apply mt-1 text-sm text-danger-text;
+  }
+
+  .card {
+    @apply rounded-2xl border border-line bg-surface shadow-sm;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
+  }
+  .skeleton {
+    @apply animate-pulse rounded-md bg-surface-2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,143 +1,86 @@
-import React, { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
-import { useCart } from "../context/CartContext";
-
-const fadeInUp = {
-  hidden: { opacity: 0, y: 30 },
-  visible: { opacity: 1, y: 0 },
-};
+import { Check } from "lucide-react";
+import useDocumentTitle from "../hooks/useDocumentTitle";
+import { formatDate, formatPrice, getId, getImage, getPrice, onImgError, statusMeta } from "../utils/format";
 
 const OrderSuccess = () => {
-  const navigate = useNavigate();
-  const { orders } = useCart();
-  const latestOrder = orders[orders.length - 1];
+  const { state } = useLocation();
+  const order = state?.order;
+  const items = state?.items || [];
 
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
+  useDocumentTitle("Order confirmed");
+
+  const status = statusMeta(order?.status);
+  const total = order?.totalPrice ?? order?.total;
 
   return (
-    <section className="max-w-3xl mx-auto px-6 py-20 text-center">
+    <section className="page-container max-w-2xl py-12 text-center">
       <motion.div
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
-        transition={{ type: "spring", stiffness: 120, damping: 10 }}
-        className="mx-auto mb-8 w-24 h-24 bg-green-500 rounded-full flex items-center justify-center shadow-lg"
+        transition={{ type: "spring", stiffness: 140, damping: 12 }}
+        className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-success text-white shadow-lg"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-12 h-12 text-white"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path d="M5 13l4 4L19 7" />
-        </svg>
+        <Check size={40} strokeWidth={3} aria-hidden="true" />
       </motion.div>
 
-      <motion.h1
-        variants={fadeInUp}
-        initial="hidden"
-        animate="visible"
-        transition={{ duration: 0.6 }}
-        className="text-4xl font-bold text-slate-900 dark:text-white mb-3"
-      >
-        Order Placed Successfully!
-      </motion.h1>
+      <h1 className="text-3xl font-bold text-fg sm:text-4xl">Thank you for your order!</h1>
+      <p className="mt-3 text-muted">
+        {order
+          ? "We’ve received your order and will start processing it right away."
+          : "If you just placed an order, you can find it in your order history."}
+      </p>
 
-      <motion.p
-        variants={fadeInUp}
-        initial="hidden"
-        animate="visible"
-        transition={{ delay: 0.2, duration: 0.6 }}
-        className="text-slate-600 dark:text-slate-300 mb-10"
-      >
-        Thank you for shopping with us. A confirmation email has been sent to
-        you.
-      </motion.p>
-
-      {latestOrder ? (
-        <motion.div
-          variants={fadeInUp}
-          initial="hidden"
-          animate="visible"
-          transition={{ delay: 0.3 }}
-          className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8 text-left"
-        >
-          <h2 className="text-2xl font-semibold mb-6 text-slate-800 dark:text-white">
-            Order Summary
-          </h2>
-
-          <div className="space-y-4">
-            {latestOrder.items.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3"
-              >
-                <div className="flex items-center gap-4">
-                  <img
-                    src={item.image}
-                    alt={item.name}
-                    className="w-14 h-14 object-cover rounded-lg"
-                  />
-                  <div>
-                    <p className="font-medium text-slate-800 dark:text-white">
-                      {item.name}
-                    </p>
-                    <p className="text-slate-500 dark:text-slate-400 text-sm">
-                      Qty: {item.quantity}
-                    </p>
-                  </div>
-                </div>
-                <p className="font-semibold text-slate-800 dark:text-slate-200">
-                  ${(item.price * item.quantity).toFixed(2)}
-                </p>
-              </div>
-            ))}
-
-            <div className="mt-6 border-t border-slate-200 dark:border-slate-700 pt-4">
-              <div className="flex justify-between mb-2 text-slate-700 dark:text-slate-300">
-                <span>Date:</span>
-                <span>{new Date(latestOrder.date).toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-lg font-bold text-slate-900 dark:text-white">
-                <span>Total:</span>
-                <span>${latestOrder.total.toFixed(2)}</span>
-              </div>
-              <div className="mt-2 text-green-600 dark:text-green-400 font-medium">
-                Status: {latestOrder.status}
-              </div>
-            </div>
+      {order && (
+        <div className="card mt-8 p-6 text-left">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold text-fg">
+              Order #{String(getId(order) || "").slice(-8).toUpperCase()}
+            </h2>
+            <span className="text-sm text-muted">
+              {formatDate(order.createdAt, { dateStyle: "medium" })} · {status.label}
+            </span>
           </div>
-        </motion.div>
-      ) : (
-        <p className="text-slate-500 mt-8">
-          No recent order found. Go back and place your order.
-        </p>
+
+          {items.length > 0 && (
+            <ul className="divide-y divide-line">
+              {items.map((item) => (
+                <li key={getId(item)} className="flex items-center gap-3 py-3">
+                  <img
+                    src={getImage(item.product, 120)}
+                    alt=""
+                    onError={onImgError}
+                    className="h-14 w-14 shrink-0 rounded-lg bg-surface-2 object-cover"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-1 font-medium text-fg">{item.product.name}</p>
+                    <p className="text-sm text-muted">Qty: {item.quantity}</p>
+                  </div>
+                  <p className="font-semibold text-fg">{formatPrice(getPrice(item.product) * item.quantity)}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="mt-4 flex justify-between border-t border-line pt-4 text-lg">
+            <span className="font-semibold text-fg">Total</span>
+            <span className="font-bold text-fg">{formatPrice(total)}</span>
+          </div>
+          {order.paymentMethod && (
+            <p className="mt-1 text-sm text-muted">Payment method: {order.paymentMethod}</p>
+          )}
+        </div>
       )}
 
-      <motion.div
-        className="flex justify-center gap-4 mt-10"
-        variants={fadeInUp}
-        initial="hidden"
-        animate="visible"
-        transition={{ delay: 0.4 }}
-      >
-        <button
-          onClick={() => navigate("/products")}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-lg shadow-lg transition"
-        >
-          Continue Shopping
-        </button>
-        <button
-          onClick={() => navigate("/myorder")}
-          className="bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-semibold px-6 py-3 rounded-lg shadow-lg transition"
-        >
-          View My Orders
-        </button>
-      </motion.div>
+      <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+        <Link to="/products" className="btn btn-secondary btn-lg">
+          Continue shopping
+        </Link>
+        <Link to="/my-orders" className="btn btn-primary btn-lg">
+          View my orders
+        </Link>
+      </div>
     </section>
   );
 };

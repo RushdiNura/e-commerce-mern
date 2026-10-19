@@ -1,66 +1,103 @@
-import React, { createContext, useState, useEffect, useContext } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { authAPI } from "../services/api";
+import {
+  clearSession,
+  getStoredUser,
+  getToken,
+  normalizeUser,
+  saveSession,
+  saveUser,
+} from "../utils/session";
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
+  return ctx;
+};
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("currentUser")) || null;
-    } catch {
-      return null;
-    }
-  });
-  const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState(getStoredUser);
+  // True while we verify a saved token with the server on first load.
+  const [initializing, setInitializing] = useState(() => !!getToken());
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token && !user) {
-      authAPI
-        .getProfile()
-        .then((res) => {
-          setUser(res.data.user);
-          localStorage.setItem("currentUser", JSON.stringify(res.data.user));
-        })
-        .catch(() => {
-          localStorage.removeItem("token");
-          localStorage.removeItem("currentUser");
-        });
+    if (!getToken()) {
+      setInitializing(false);
+      return;
     }
+    let cancelled = false;
+    authAPI
+      .getProfile()
+      .then((res) => {
+        if (cancelled) return;
+        const me = normalizeUser(res.data.user);
+        saveUser(me);
+        setUser(me);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const status = err.response?.status;
+        // Token invalid / user deleted -> sign out. A network error keeps the cached user.
+        if (status === 401 || status === 404) {
+          clearSession();
+          setUser(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setInitializing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const login = async (credentials) => {
-    setLoading(true);
-    const res = await authAPI.login(credentials);
-    const { token, user: me } = res.data;
-    localStorage.setItem("token", token);
-    localStorage.setItem("currentUser", JSON.stringify(me));
+  // api.js fires this when the server says the token is no longer valid.
+  useEffect(() => {
+    const onExpired = () => setUser(null);
+    window.addEventListener("auth:expired", onExpired);
+    return () => window.removeEventListener("auth:expired", onExpired);
+  }, []);
+
+  const startSession = useCallback((data) => {
+    const me = normalizeUser(data.user);
+    saveSession(data.token, me);
     setUser(me);
-    setLoading(false);
     return me;
-  };
+  }, []);
 
-  const register = async (data) => {
-    setLoading(true);
-    const res = await authAPI.register(data);
-    setLoading(false);
-    return res.data;
-  };
+  const login = useCallback(
+    async (credentials) => startSession((await authAPI.login(credentials)).data),
+    [startSession]
+  );
 
-  const logout = async () => {
+  const register = useCallback(
+    async (details) => startSession((await authAPI.register(details)).data),
+    [startSession]
+  );
+
+  const logout = useCallback(async () => {
     try {
       await authAPI.logout();
-    } catch {}
-    localStorage.removeItem("token");
-    localStorage.removeItem("currentUser");
+    } catch {
+      /* the token is cleared locally either way */
+    }
+    clearSession();
     setUser(null);
-  };
+  }, []);
 
-  return (
-    <AuthContext.Provider value={{ user, login, register, logout, loading }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      user,
+      initializing,
+      isAdmin: user?.role === "admin",
+      login,
+      register,
+      logout,
+    }),
+    [user, initializing, login, register, logout]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

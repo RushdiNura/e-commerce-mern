@@ -1,17 +1,20 @@
-import React from "react";
+const SIZES = { sm: "h-5 w-5 border-2", md: "h-8 w-8 border-[3px]", lg: "h-12 w-12 border-4" };
 
-function LoadingSpinner({ size = "md" }) {
-  const sizeClasses = {
-    sm: "w-6 h-6",
-    md: "w-8 h-8",
-    lg: "w-12 h-12",
-  };
-
+export default function LoadingSpinner({ size = "md", label = "Loading" }) {
   return (
-    <div
-      className={`${sizeClasses[size]} border-4 border-blue-200 border-t-blue-600 dark:border-gray-700 dark:border-t-blue-500 rounded-full animate-spin`}
-    ></div>
+    <span
+      role="status"
+      aria-label={label}
+      className={`inline-block animate-spin rounded-full border-line border-t-brand ${SIZES[size]}`}
+    />
   );
 }
 
-export default LoadingSpinner;
+export function PageLoader({ message = "Loading…" }) {
+  return (
+    <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-muted">
+      <LoadingSpinner size="lg" />
+      <p className="text-sm">{message}</p>
+    </div>
+  );
+}

@@ -1,355 +1,203 @@
-import React, { useEffect, useState } from "react";
-import { useCart } from "../context/CartContext";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import toast from "react-hot-toast";
-import { X, AlertCircle, ShoppingCart, Trash2 } from "lucide-react";
+import { motion } from "framer-motion";
+import { Minus, Plus, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
+import ConfirmDialog from "../components/ConfirmDialog";
+import EmptyState from "../components/EmptyState";
+import { useCart } from "../context/CartContext";
+import { useAuth } from "../context/AuthContext";
+import useDocumentTitle from "../hooks/useDocumentTitle";
+import { PageLoader } from "../components/LoadingSpinner";
+import { formatPrice, getId, getImage, getPrice, onImgError } from "../utils/format";
 
 const Cart = () => {
-  const {
-    cartItems,
-    total,
-    loading,
-    fetchCart,
-    updateQuantity,
-    removeFromCart,
-    clearCart,
-  } = useCart();
+  const { user } = useAuth();
+  const { cartItems, total, itemCount, initialized, pendingId, updateQuantity, removeFromCart, clearCart } =
+    useCart();
 
-  const [showClearCartDialog, setShowClearCartDialog] = useState(false);
-  const [itemToRemove, setItemToRemove] = useState(null);
+  const [toRemove, setToRemove] = useState(null);
+  const [confirmClear, setConfirmClear] = useState(false);
 
-  useEffect(() => {
-    fetchCart();
-  }, []);
+  useDocumentTitle("Your cart");
 
-  const handleQuantityChange = (itemId, newQuantity) => {
-    if (newQuantity < 1) return;
-    updateQuantity(itemId, newQuantity);
-  };
-
-  const handleRemoveClick = (itemId, itemName) => {
-    setItemToRemove({ id: itemId, name: itemName });
-  };
-
-  const confirmRemove = () => {
-    if (itemToRemove) {
-      removeFromCart(itemToRemove.id);
-      toast.success("Item removed from cart");
-      setItemToRemove(null);
-    }
-  };
-
-  const cancelRemove = () => {
-    setItemToRemove(null);
-  };
-
-  const handleClearCartClick = () => {
-    setShowClearCartDialog(true);
-  };
-
-  const confirmClearCart = () => {
-    clearCart();
-    toast.success("Cart cleared successfully");
-    setShowClearCartDialog(false);
-  };
-
-  const cancelClearCart = () => {
-    setShowClearCartDialog(false);
-  };
-
-  if (loading) {
+  if (!user) {
     return (
-      <div className="flex justify-center items-center h-[60vh] text-slate-500">
-        Loading your cart...
-      </div>
+      <section className="page-container py-12">
+        <EmptyState
+          icon={ShoppingBag}
+          title="Log in to see your cart"
+          message="Your cart is saved to your account, so you can pick up where you left off on any device."
+          action={
+            <Link to="/login" state={{ from: { pathname: "/cart" } }} className="btn btn-primary btn-lg">
+              Log in
+            </Link>
+          }
+        />
+      </section>
     );
   }
 
-  if (!cartItems.length) {
+  if (!initialized) return <PageLoader message="Loading your cart…" />;
+
+  if (cartItems.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center text-center py-20 text-slate-600">
-        <motion.img
-          src="https://cdn-icons-png.flaticon.com/512/2038/2038854.png"
-          alt="Empty cart"
-          className="w-40 mb-6 opacity-80"
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
+      <section className="page-container py-12">
+        <EmptyState
+          icon={ShoppingBag}
+          title="Your cart is empty"
+          message="Looks like you haven’t added anything yet."
+          action={
+            <Link to="/products" className="btn btn-primary btn-lg">
+              Start shopping
+            </Link>
+          }
         />
-        <h2 className="text-2xl font-semibold mb-2">Your Cart is Empty</h2>
-        <p className="mb-6 text-slate-500">
-          Looks like you haven't added anything yet.
-        </p>
-        <Link
-          to="/products"
-          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all"
-        >
-          Start Shopping
-        </Link>
-      </div>
+      </section>
     );
   }
 
   return (
-    <>
-      <section className="max-w-7xl mx-auto px-6 py-16">
-        <motion.h1
-          className="text-3xl font-bold text-center text-slate-900 dark:text-white mb-10"
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          Your Shopping Cart
-        </motion.h1>
+    <section className="page-container py-8">
+      <h1 className="mb-6 text-3xl font-bold text-fg">
+        Shopping cart{" "}
+        <span className="text-lg font-medium text-muted">
+          ({itemCount} item{itemCount === 1 ? "" : "s"})
+        </span>
+      </h1>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-          <div className="lg:col-span-2 space-y-6">
-            {cartItems.map((item) => (
-              <motion.div
-                key={item._id || item.id}
-                className="flex items-center justify-between bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-4 shadow-sm hover:shadow-lg transition-all"
-                initial={{ opacity: 0, y: 20 }}
+      <div className="grid gap-8 lg:grid-cols-3">
+        <ul className="space-y-4 lg:col-span-2">
+          {cartItems.map((item) => {
+            const lineId = getId(item);
+            const p = item.product;
+            const price = getPrice(p);
+            const busy = pendingId === lineId;
+            const maxed = p.stock !== undefined && item.quantity >= Number(p.stock);
+            return (
+              <motion.li
+                key={lineId}
+                layout
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
+                className={`card flex flex-col gap-4 p-4 sm:flex-row sm:items-center ${busy ? "opacity-60" : ""}`}
               >
-                <div className="flex items-center gap-4">
+                <Link to={`/product/${getId(p)}`} className="shrink-0">
                   <img
-                    src={
-                      item.product?.image?.[0]?.url ||
-                      item.product?.image?.url ||
-                      item.product?.image ||
-                      item.image?.[0]?.url ||
-                      item.image?.url ||
-                      item.image ||
-                      "https://via.placeholder.com/100?text=No+Image"
-                    }
-                    alt={item.product?.name || item.name || "Product"}
-                    className="w-20 h-20 rounded-lg object-cover"
-                    onError={(e) => {
-                      e.target.src =
-                        "https://via.placeholder.com/100?text=No+Image";
-                    }}
+                    src={getImage(p, 200)}
+                    alt={p.name}
+                    onError={onImgError}
+                    className="h-24 w-24 rounded-lg bg-surface-2 object-cover"
                   />
-                  <div>
-                    <h3 className="font-semibold text-slate-800 dark:text-slate-100">
-                      {item.product?.name || item.name}
-                    </h3>
-                    <p className="text-indigo-500 font-medium">
-                      $
-                      {(
-                        item.product?.new_price ||
-                        item.product?.price ||
-                        item.price ||
-                        0
-                      ).toFixed(2)}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      Subtotal: $
-                      {(
-                        (item.product?.new_price ||
-                          item.product?.price ||
-                          item.price ||
-                          0) * item.quantity || 0
-                      ).toFixed(2)}
-                    </p>
+                </Link>
+
+                <div className="min-w-0 flex-1">
+                  <Link
+                    to={`/product/${getId(p)}`}
+                    className="line-clamp-2 font-semibold text-fg hover:text-brand-text"
+                  >
+                    {p.name}
+                  </Link>
+                  <p className="mt-1 text-sm text-muted">{formatPrice(price)} each</p>
+                  {maxed && <p className="mt-1 text-xs text-warning-text">Maximum available quantity</p>}
+                </div>
+
+                <div className="flex items-center justify-between gap-4 sm:justify-end">
+                  <div className="inline-flex items-center rounded-lg border border-field" role="group" aria-label={`Quantity for ${p.name}`}>
+                    <button
+                      type="button"
+                      className="px-3 py-2 text-fg hover:bg-surface-2 disabled:opacity-40"
+                      disabled={busy || item.quantity <= 1}
+                      onClick={() => updateQuantity(lineId, item.quantity - 1)}
+                      aria-label="Decrease quantity"
+                    >
+                      <Minus size={16} />
+                    </button>
+                    <span className="min-w-9 text-center text-sm font-semibold text-fg" aria-live="polite">
+                      {item.quantity}
+                    </span>
+                    <button
+                      type="button"
+                      className="px-3 py-2 text-fg hover:bg-surface-2 disabled:opacity-40"
+                      disabled={busy || maxed}
+                      onClick={() => updateQuantity(lineId, item.quantity + 1)}
+                      aria-label="Increase quantity"
+                    >
+                      <Plus size={16} />
+                    </button>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() =>
-                      handleQuantityChange(
-                        item._id || item.id,
-                        item.quantity - 1
-                      )
-                    }
-                    className="w-8 h-8 flex items-center justify-center bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
-                  >
-                    -
-                  </button>
-                  <span className="text-slate-700 dark:text-slate-200 min-w-8 text-center">
-                    {item.quantity}
-                  </span>
-                  <button
-                    onClick={() =>
-                      handleQuantityChange(
-                        item._id || item.id,
-                        item.quantity + 1
-                      )
-                    }
-                    className="w-8 h-8 flex items-center justify-center bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
-                  >
-                    +
-                  </button>
+                  <p className="w-24 text-right font-bold text-fg">{formatPrice(price * item.quantity)}</p>
 
                   <button
-                    onClick={() =>
-                      handleRemoveClick(
-                        item._id || item.id,
-                        item.product?.name || item.name || "this item"
-                      )
-                    }
-                    className="ml-4 px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors flex items-center gap-1"
+                    type="button"
+                    onClick={() => setToRemove({ id: lineId, name: p.name })}
+                    disabled={busy}
+                    className="btn btn-ghost !p-2 hover:!text-danger-text"
+                    aria-label={`Remove ${p.name}`}
                   >
-                    <Trash2 size={14} />
-                    Remove
+                    <Trash2 size={18} />
                   </button>
                 </div>
-              </motion.div>
-            ))}
-          </div>
+              </motion.li>
+            );
+          })}
 
-          <motion.div
-            className="bg-slate-900 text-slate-200 rounded-xl p-8 shadow-lg sticky top-24 h-fit"
-            initial={{ opacity: 0, x: 40 }}
-            animate={{ opacity: 1, x: 0 }}
-          >
-            <h2 className="text-xl font-semibold mb-6 text-indigo-400">
-              Order Summary
-            </h2>
+          <li className="pt-2">
+            <button type="button" onClick={() => setConfirmClear(true)} className="btn btn-ghost text-sm">
+              <Trash2 size={16} aria-hidden="true" /> Clear cart
+            </button>
+          </li>
+        </ul>
 
-            <div className="flex justify-between mb-3">
-              <span>Subtotal</span>
-              <span>${(total || 0).toFixed(2)}</span>
+        {/* Summary */}
+        <aside className="card h-fit p-6 lg:sticky lg:top-24" aria-label="Order summary">
+          <h2 className="mb-5 text-xl font-semibold text-fg">Order summary</h2>
+          <dl className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-muted">Subtotal</dt>
+              <dd className="font-medium text-fg">{formatPrice(total)}</dd>
             </div>
-
-            <div className="flex justify-between mb-3 text-slate-400">
-              <span>Shipping</span>
-              <span>Free</span>
+            <div className="flex justify-between">
+              <dt className="text-muted">Shipping</dt>
+              <dd className="font-medium text-success-text">Free</dd>
             </div>
-
-            <div className="border-t border-slate-700 mt-4 pt-4 flex justify-between text-lg font-semibold">
-              <span>Total</span>
-              <span>${(total || 0).toFixed(2)}</span>
+            <div className="flex justify-between border-t border-line pt-4 text-lg">
+              <dt className="font-semibold text-fg">Total</dt>
+              <dd className="font-bold text-fg">{formatPrice(total)}</dd>
             </div>
+          </dl>
+          <Link to="/checkout" className="btn btn-primary btn-lg mt-6 w-full">
+            <ShoppingCart size={18} aria-hidden="true" /> Proceed to checkout
+          </Link>
+          <Link to="/products" className="mt-3 block text-center text-sm text-muted hover:text-fg hover:underline">
+            Continue shopping
+          </Link>
+        </aside>
+      </div>
 
-            <div className="mt-8 space-y-3">
-              <Link
-                to="/orders"
-                className="block text-center bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 rounded-lg transition flex items-center justify-center gap-2"
-              >
-                <ShoppingCart size={18} />
-                Proceed to Checkout
-              </Link>
-
-              <button
-                onClick={handleClearCartClick}
-                className="w-full py-3 border border-red-600 text-red-400 hover:bg-red-600 hover:text-white rounded-lg transition flex items-center justify-center gap-2"
-              >
-                <Trash2 size={16} />
-                Clear Cart
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      </section>
-
-
-      <AnimatePresence>
-        {itemToRemove && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-md w-full border border-slate-200 dark:border-slate-700"
-            >
-              <div className="p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
-                    <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                      Remove Item
-                    </h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                      Confirm item removal
-                    </p>
-                  </div>
-                </div>
-
-                <p className="text-slate-600 dark:text-slate-300 mb-6 pl-13">
-                  Are you sure you want to remove{" "}
-                  <strong className="text-slate-900 dark:text-white">
-                    "{itemToRemove.name}"
-                  </strong>{" "}
-                  from your shopping cart?
-                </p>
-
-                <div className="flex gap-3 justify-end">
-                  <button
-                    onClick={cancelRemove}
-                    className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={confirmRemove}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium flex items-center gap-2"
-                  >
-                    <Trash2 size={16} />
-                    Remove Item
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showClearCartDialog && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-md w-full border border-slate-200 dark:border-slate-700"
-            >
-              <div className="p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center">
-                    <AlertCircle className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                      Clear Shopping Cart
-                    </h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                      This action cannot be undone
-                    </p>
-                  </div>
-                </div>
-
-                <p className="text-slate-600 dark:text-slate-300 mb-6 pl-13">
-                  You're about to remove all{" "}
-                  <strong className="text-slate-900 dark:text-white">
-                    {cartItems.length}
-                  </strong>{" "}
-                  item{cartItems.length !== 1 ? "s" : ""} from your cart. This
-                  will permanently delete your cart contents.
-                </p>
-
-                <div className="flex gap-3 justify-end">
-                  <button
-                    onClick={cancelClearCart}
-                    className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors font-medium"
-                  >
-                    Keep Items
-                  </button>
-                  <button
-                    onClick={confirmClearCart}
-                    className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors font-medium flex items-center gap-2"
-                  >
-                    <Trash2 size={16} />
-                    Clear All Items
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-    </>
+      <ConfirmDialog
+        open={Boolean(toRemove)}
+        title="Remove this item?"
+        message={toRemove ? `“${toRemove.name}” will be removed from your cart.` : ""}
+        confirmLabel="Remove"
+        onConfirm={() => {
+          removeFromCart(toRemove.id);
+          setToRemove(null);
+        }}
+        onCancel={() => setToRemove(null)}
+      />
+      <ConfirmDialog
+        open={confirmClear}
+        title="Clear your cart?"
+        message={`All ${itemCount} item${itemCount === 1 ? "" : "s"} will be removed from your cart.`}
+        confirmLabel="Clear cart"
+        onConfirm={() => {
+          clearCart();
+          setConfirmClear(false);
+        }}
+        onCancel={() => setConfirmClear(false)}
+      />
+    </section>
   );
 };
 
